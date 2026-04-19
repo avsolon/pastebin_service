@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 
@@ -11,15 +12,20 @@ router = APIRouter()
 
 
 @router.post("/create")
-async def create(text: str = Form(None), file: UploadFile = File(None)):
+async def create(
+    text: str = Form(None),
+    file: UploadFile = File(None)
+):
     db = SessionLocal()
 
-    if not text and not file:
-        raise HTTPException(400)
+    # защита от пустого запроса
+    if not text and (not file or not file.filename):
+        raise HTTPException(status_code=400, detail="Empty request")
 
     file_path = None
 
-    if file:
+    # безопасная проверка файла
+    if file and file.filename:
         check_file_size(file)
         file_path = save_file(file)
 
@@ -30,41 +36,58 @@ async def create(text: str = Form(None), file: UploadFile = File(None)):
         "qr": f"/qr/{paste.code}.png"
     }
 
-
-@router.get("/service/pastebit/{code}", response_class=HTMLResponse)
+@router.get("/service/pastebit/{code}")
 def preview(code: str):
     db = SessionLocal()
+
     paste = db.query(Paste).filter(Paste.code == code).first()
 
     if not paste or is_expired(paste):
-        return "<h1>Недоступно</h1>"
+        raise HTTPException(status_code=404, detail="Not found")
 
-    return f"""
-    <form method="POST" action="/service/pastebit/{code}/view">
-        <button>Открыть</button>
-    </form>
-    """
+    # если есть файл → отдаём информацию, а не HTML
+    if paste.file_path:
+        return {
+            "type": "file",
+            "url": f"/service/pastebit/{code}/view"
+        }
 
+    return {
+        "type": "text",
+        "text": paste.text
+    }
 
-@router.post("/service/pastebit/{code}/view")
+@router.get("/service/pastebit/{code}/view")
 def view(code: str):
     db = SessionLocal()
+
     paste = db.query(Paste).filter(Paste.code == code).first()
 
     if not paste or is_expired(paste):
-        raise HTTPException(404)
+        raise HTTPException(status_code=404)
 
-    delete_file(paste.qr_path)
-
+    # FILE CASE
     if paste.file_path:
-        path = paste.file_path
-        delete_file(path)
 
+        path = paste.file_path
+
+        if not os.path.exists(path):
+            db.delete(paste)
+            db.commit()
+            raise HTTPException(status_code=404, detail="File missing")
+
+        response = FileResponse(path)
+
+        # удаляем ПОСЛЕ отдачи
+        delete_file(paste.qr_path)
+
+        # удаляем запись
         db.delete(paste)
         db.commit()
 
-        return FileResponse(path)
+        return response
 
+    # TEXT CASE
     text = paste.text
 
     db.delete(paste)
