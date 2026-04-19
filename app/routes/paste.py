@@ -10,21 +10,15 @@ from app.utils.helpers import is_expired
 
 router = APIRouter()
 
-
 @router.post("/create")
-async def create(
-    text: str = Form(None),
-    file: UploadFile = File(None)
-):
+async def create(text: str = Form(None), file: UploadFile = File(None)):
     db = SessionLocal()
 
-    # защита от пустого запроса
     if not text and (not file or not file.filename):
-        raise HTTPException(status_code=400, detail="Empty request")
+        raise HTTPException(400, "Empty request")
 
     file_path = None
 
-    # безопасная проверка файла
     if file and file.filename:
         check_file_size(file)
         file_path = save_file(file)
@@ -64,33 +58,22 @@ def view(code: str):
     paste = db.query(Paste).filter(Paste.code == code).first()
 
     if not paste or is_expired(paste):
-        raise HTTPException(status_code=404)
+        raise HTTPException(404)
 
-    # FILE CASE
     if paste.file_path:
-
         path = paste.file_path
 
         if not os.path.exists(path):
-            db.delete(paste)
-            db.commit()
-            raise HTTPException(status_code=404, detail="File missing")
+            raise HTTPException(404)
 
         response = FileResponse(path)
 
-        # удаляем ПОСЛЕ отдачи
-        delete_file(paste.qr_path)
-
-        # удаляем запись
         db.delete(paste)
         db.commit()
 
         return response
 
-    # TEXT CASE
-    text = paste.text
-
     db.delete(paste)
     db.commit()
 
-    return HTMLResponse(f"<pre>{text}</pre>")
+    return HTMLResponse(f"<pre>{paste.text}</pre>")
