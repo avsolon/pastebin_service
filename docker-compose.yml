@@ -12,6 +12,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./qr:/app/qr
+      - ./data:/app/data
 
     environment:
       - TZ=Europe/Riga
