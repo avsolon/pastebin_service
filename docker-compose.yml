@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  pastebin:
+    build: .
+    container_name: pastebin_service
+    restart: always
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - ./uploads:/app/uploads
+      - ./qr:/app/qr
+      - ./database.db:/app/database.db
+
+    environment:
+      - TZ=Europe/Riga
+
+    networks:
+      - pastebin_net
+
+networks:
+  pastebin_net:
+    driver: bridge
