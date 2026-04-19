@@ -12,7 +12,6 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./qr:/app/qr
-      - ./database.db:/app/database.db
 
     environment:
       - TZ=Europe/Riga
