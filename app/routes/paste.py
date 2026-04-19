@@ -14,11 +14,13 @@ router = APIRouter()
 async def create(text: str = Form(None), file: UploadFile = File(None)):
     db = SessionLocal()
 
+    # защита от пустого запроса
     if not text and (not file or not file.filename):
-        raise HTTPException(400, "Empty request")
+        raise HTTPException(status_code=400, detail="Empty request")
 
     file_path = None
 
+    # безопасная проверка файла
     if file and file.filename:
         check_file_size(file)
         file_path = save_file(file)
@@ -30,8 +32,52 @@ async def create(text: str = Form(None), file: UploadFile = File(None)):
         "qr": f"/qr/{paste.code}.png"
     }
 
-@router.get("/service/pastebit/{code}")
+@router.get("/service/pastebit/{code}", response_class=HTMLResponse)
 def preview(code: str):
+    db = SessionLocal()
+
+    paste = db.query(Paste).filter(Paste.code == code).first()
+
+    if not paste or is_expired(paste):
+        return "<h1>❌ Недоступно или истёк срок</h1>"
+
+    return f"""
+    <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Paste</title>
+            <style>
+                body {{
+                    font-family: Arial;
+                    background:#0f172a;
+                    color:white;
+                    text-align:center;
+                    padding:50px;
+                }}
+                button {{
+                    padding:12px 20px;
+                    border:none;
+                    border-radius:8px;
+                    background:#3b82f6;
+                    color:white;
+                    cursor:pointer;
+                }}
+            </style>
+        </head>
+        <body>
+
+            <h2>📎 Содержимое готово</h2>
+
+            <form method="POST" action="/service/pastebit/{code}/view">
+                <button>Открыть</button>
+            </form>
+
+        </body>
+    </html>
+    """
+
+@router.post("/service/pastebit/{code}/view")
+def view(code: str):
     db = SessionLocal()
 
     paste = db.query(Paste).filter(Paste.code == code).first()
@@ -39,41 +85,36 @@ def preview(code: str):
     if not paste or is_expired(paste):
         raise HTTPException(status_code=404, detail="Not found")
 
-    # если есть файл → отдаём информацию, а не HTML
+    # === FILE CASE ===
     if paste.file_path:
-        return {
-            "type": "file",
-            "url": f"/service/pastebit/{code}/view"
-        }
 
-    return {
-        "type": "text",
-        "text": paste.text
-    }
-
-@router.get("/service/pastebit/{code}/view")
-def view(code: str):
-    db = SessionLocal()
-
-    paste = db.query(Paste).filter(Paste.code == code).first()
-
-    if not paste or is_expired(paste):
-        raise HTTPException(404)
-
-    if paste.file_path:
         path = paste.file_path
 
         if not os.path.exists(path):
-            raise HTTPException(404)
+            db.delete(paste)
+            db.commit()
+            raise HTTPException(status_code=404, detail="File missing")
 
         response = FileResponse(path)
+
+        # удаляем QR и запись после отдачи
+        delete_file(paste.qr_path)
 
         db.delete(paste)
         db.commit()
 
         return response
 
+    # === TEXT CASE ===
+    text = paste.text
+
     db.delete(paste)
     db.commit()
 
-    return HTMLResponse(f"<pre>{paste.text}</pre>")
+    return HTMLResponse(f"""
+    <html>
+        <body style="font-family:Arial; padding:30px;">
+            <pre style="white-space:pre-wrap;">{text}</pre>
+        </body>
+    </html>
+    """)
