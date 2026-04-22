@@ -1,6 +1,6 @@
 import os
 
-BASE_URL = "http://109.71.242.145:8002"
+BASE_URL = "http://138.124.70.3:8002"
 
 UPLOAD_DIR = "uploads"
 QR_DIR = "qr"
